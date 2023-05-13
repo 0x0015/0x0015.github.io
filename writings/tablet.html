@@ -1,0 +1,84 @@
+<!DOCTYPE HTML>
+<html>
+        <head>
+        </head>
+        <body>
+		<h3>Getting a graphics tablet to work properly under wayfire <a href="..">(back)</a></h3>
+                <br>
+		My main computer is a desktop, which I mainly run arch linux on.  The next important thing to note is that I have three monitors in my setup, one normal 1080p, some strange old 1280x1024 dell, and recently I got a new fancy 4k one.  Because of this I finally took the plunge and switched to Wayland, for one simple reason:  I can scale my monitors independantly of eachother.  In Xorg there is scaling, but it is global, so to make anything readable on the 4k one, everything would be huge on the others.  In Wayland on the other hand, you can set the scaling value on a per-monitor basis, so the old monitors stay the same, and the new one is set to 1.5 scale.  My compositor of choic ended up being <a href="https://github.com/WayfireWM/wayfire">Wayfire</a> as I honestly am not a super fan of tiling wm's for many things, the biggest being gaming.  I also am in love with wobbly window effects.  The biggest querk about Wayfire is that the entire configuration is just one file (<code>~/.config/wayfire.ini</code>), which is read by the wm whenever you write to it, so the changes are always reflected.  This is cool because it lets you <a href="https://github.com/0x0015/WayfireConfigTool">automate things</a>, but also means that change something manually you have to dig through the file, and hope your changes were the right ones.  In what is particularly relevent is that I have my three monitors listed in the config file:<br>
+		<div style="background-color:#dddddd"><code><pre>
+[output:DP-2]
+mode = 3840x2160@60000
+position = 3200, 0
+scale = 1.500000
+transform = normal
+
+[output:DP-3]
+mode = 1920x1080@75000
+position = 1280, 0
+scale = 1.000000
+transform = normal:q
+
+[output:HDMI-A-1]
+mode = 1280x1024@60000
+position = 0, 0
+scale = 1.000000
+transform = normal</pre></code></div>
+		This setup works great as far as graphics is concerned.  The problem begins when I want to use a graphics tablet (specificially a Huion H580X).  Right off the get go, just try it, and it does work, sort of.  it maps the area of the pad, to the screen space of ALL of my monitors, which is to say the least subpar.  The next thing I try is using the KDE (plasma) settings manager, systemsettings, as I know this worked for what I wanted under Xorg, and plasma does theoretically work under Wayland.  The problem is that doing so seems to make systemsettings Hang, not even accepting the x button to close the window, requiring me to kill it.<br>
+		<img src="SystemsettingsHang.png" onload="this.width/=2;this.onload=null;"><br>
+		And sure enough, reading into it just even a tiny bit finds this from the <a href="https://userbase.kde.org/Wacomtablet">KDE website</a> We get "Known issues:  ... Wayland is not supported yet. ...", so the KDE config tool is out.  Next I tried out <a href="https://github.com/OpenTabletDriver/OpenTabletDriver">OpenTabletDriver</a>.  It looked very promising, but between two versions (version 6 and 7rc, or opentabletdriver and opentabletdriver-git in the AUR), only in 7rc could I actually create a manual config that would detect it at all (among solving other issues version 6 had), but even then, though running <code>sudo libinput list-devices</code> would list the virtual tablet, no input would ever come through.  It took so much work to get it to even detect the tablet at all, as I had to make a custom tablet configuration file, and even then add a kernel module to blacklist (modprobe.d), and figure out udev rules, that I just gave up and reverted when it didn't work.  At this point I was back with it sort of working, and I decided to scour over the wayland docs, because theoretically this should all be handeled by the wm/compositor now in the first place (just how wayland does it).  What I discovered was that there was an obscure setting under the config section on the github wiki for wayfire, under "Input device-specific options", which said to limit a tablet to a specific output (screen) it should look something like this:<br>
+		<div style="background-color:#dddddd"><code><pre>
+[input-device:Wacom Pen and multitouch sensor Finger (or whatever device name)]
+output = eDP-1 (or whatever display)</pre></code></div>
+			So I set it up exactly like it said, finding the device name from <code>lsusb</code> to be <code>HUION Huion Tablet_H580X</code>.  looks great, so I put it in for the device name, and <code>DP-2</code> (the 4k one) for the output and...no change.  To save you the story of hours of internet searching, I eventually discovered the problem by running <code>libinput list-devices</code> to get the following entries (yes s, multiple):
+			<div style="background-color:#dddddd"><code><pre>
+Device:           HUION Huion Tablet_H580X Pen
+Kernel:           /dev/input/event9
+Group:            4
+Seat:             seat0, default
+Size:             203x127mm
+Capabilities:     tablet 
+Tap-to-click:     n/a
+Tap-and-drag:     n/a
+Tap drag lock:    n/a
+Left-handed:      disabled
+Nat.scrolling:    n/a
+Middle emulation: n/a
+Calibration:      n/a
+Scroll methods:   none
+Click methods:    none
+Disable-w-typing: n/a
+Disable-w-trackpointing: n/a
+Accel profiles:   none
+Rotation:         n/a
+
+Device:           HUION Huion Tablet_H580X Pad
+Kernel:           /dev/input/event10
+Group:            4
+Seat:             seat0, default
+Capabilities:     tablet-pad
+Tap-to-click:     n/a
+Tap-and-drag:     n/a
+Tap drag lock:    n/a
+Left-handed:      disabled
+Nat.scrolling:    n/a
+Middle emulation: n/a
+Calibration:      n/a
+Scroll methods:   none
+Click methods:    none
+Disable-w-typing: n/a
+Disable-w-trackpointing: n/a
+Accel profiles:   n/a
+Rotation:         n/a
+Pad:
+	Rings:   0
+	Strips:  0
+	Buttons: 8
+	Mode groups: 1 (1 modes)</pre></code></div>
+		This made me think, what it's really looking for is probably the one that lists a possible size, and lists itself as a tablet (that being the pen), not the one which lists itself as a tablet-pad, and only has the buttons.  I put it into the config file as such:
+		<div style="background-color:#dddddd"><code><pre>
+[input-device:HUION Huion Tablet_H580X Pen]
+output = DP-2</pre></code></div>
+		and after a reboot, it just worked.  This does raise some questions, such as, what would I do if I wanted to utilise only a portion of the total area of the tablet surface to map to the whole screen, particularly for games (the big one I can think of is Osu, but I usually use it for Trumbone Champ), which as far as I know, wouldn't be possible with this setup.  The only other tablet-related option I could find for wayfire was under the general <code>[input]</code> section of the config file with an option called <code>tablet_motion_mode</code>, which when looking through the source code, shows that the only options are <code>absolute</code> - the default for absolute positioning, and <code>relative</code> - for relative positioning (never would have guessed by the names), but I have not tested relative mode to see if it works as I would expect (presuming that it is there means it works though).  The moral of the story, wayland (and by extension wayfire) like things done their way, which makes things work, but requires some tinkering.
+        </body>
+</html>
